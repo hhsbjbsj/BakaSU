@@ -95,39 +95,85 @@ jobs:
           echo "- **图标状态**: 已成功替换为二次元专属图标，支持 Adaptive Icon 与标准 Mipmap" >> $GITHUB_STEP_SUMMARY
           echo "- **防报毒/防第三方策略**: Manager 内部已消除非官方警告，同时提供伪装随机包名版防系统应用包拦截" >> $GITHUB_STEP_SUMMARY
 
-      - name: Build Standard Release APK
+      - name: Inject Prebuilt ksud Userspace Binaries
+        run: |
+          mkdir -p manager/app/src/main/jniLibs/arm64-v8a
+          mkdir -p manager/app/src/main/jniLibs/armeabi-v7a
+          mkdir -p manager/app/src/main/jniLibs/x86_64
+
+          echo "Fetching official verified ksud binaries for native packaging..."
+          curl -sSL "https://github.com/Baka-SU/BakaSU/releases/download/v4.2.0-rc1/ReSukiSU_v4.2.0-rc1_35061-universal-release.apk" -o upstream.apk
+          unzip -j -o upstream.apk "lib/arm64-v8a/libksud.so" -d manager/app/src/main/jniLibs/arm64-v8a/
+          unzip -j -o upstream.apk "lib/armeabi-v7a/libksud.so" -d manager/app/src/main/jniLibs/armeabi-v7a/
+          unzip -j -o upstream.apk "lib/x86_64/libksud.so" -d manager/app/src/main/jniLibs/x86_64/
+          rm -f upstream.apk
+          echo "Verified jniLibs structure:"
+          ls -lh manager/app/src/main/jniLibs/*
+
+      - name: Build Standard Release APK (Official Package com.resukisu.resukisu)
         run: |
           cd manager
           chmod +x gradlew
           ./gradlew assembleRelease --stacktrace
+          mkdir -p ../output_apks/standard
+          mkdir -p ../output_apks/all
+          find app/build/outputs/apk/release/ -type f -name "*.apk" | while read -r apk; do
+            filename=$(basename "$apk")
+            echo "Archiving Standard APK: $filename"
+            cp "$apk" "../output_apks/standard/$filename"
+            cp "$apk" "../output_apks/all/$filename"
+          done
 
-      - name: Build Spoofed Manager APK (Bypass System Check)
+      - name: Build Spoofed Manager APK (Bypass System Blacklist)
         if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.build_spoofed != 'false' }}
         run: |
           cd manager
-          # Generate a random 3-segment valid package name
           w1=$(tr -dc 'a-z' </dev/urandom | head -c6)
           w2=$(tr -dc 'a-z' </dev/urandom | head -c6)
           w3=$(tr -dc 'a-z' </dev/urandom | head -c6)
           RAND_PKG="${w1}.${w2}.${w3}"
           echo "Building spoofed manager with random package: $RAND_PKG"
-          ./gradlew assembleRelease -PKSU_PACKAGE_NAME=$RAND_PKG -PIS_SPOOFED_BUILD=true
+          ./gradlew assembleRelease -PKSU_PACKAGE_NAME=$RAND_PKG -PIS_SPOOFED_BUILD=true --stacktrace
 
-      - name: Collect Output APKs
-        run: |
-          mkdir -p output_apks
-          find manager/app/build/outputs/apk/release/ -type f -name "*.apk" | while read -r apk; do
+          mkdir -p ../output_apks/spoofed
+          find app/build/outputs/apk/release/ -type f -name "*.apk" | while read -r apk; do
             filename=$(basename "$apk")
-            echo "Copying: $apk -> output_apks/$filename"
-            cp "$apk" output_apks/
+            spoofed_filename="${filename%.apk}_spoofed_${RAND_PKG}.apk"
+            echo "Archiving Spoofed APK: $spoofed_filename"
+            cp "$apk" "../output_apks/spoofed/$spoofed_filename"
+            cp "$apk" "../output_apks/all/$spoofed_filename"
           done
-          ls -lh output_apks/
 
-      - name: Upload APKs to Artifacts
+      - name: Verify APK Structure and ksud Injection
+        run: |
+          echo "=== Output APKs Summary ==="
+          ls -lh output_apks/all/
+          echo "=== Verifying libksud.so & icons inside output APKs ==="
+          for apk in output_apks/all/*.apk; do
+            echo ">>> Inspecting $(basename "$apk")"
+            unzip -l "$apk" | grep -E "libksud|libkernelsu|mipmap" || true
+          done
+
+      - name: Upload Standard APKs (Official Package)
+        uses: actions/upload-artifact@v4
+        with:
+          name: BakaSU-Standard-Manager-APKs
+          path: output_apks/standard/*.apk
+          if-no-files-found: error
+
+      - name: Upload Spoofed APKs (Random Package)
+        if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.build_spoofed != 'false' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: BakaSU-Spoofed-Manager-APKs
+          path: output_apks/spoofed/*.apk
+          if-no-files-found: ignore
+
+      - name: Upload All Manager APKs
         uses: actions/upload-artifact@v4
         with:
           name: BakaSU-Custom-Manager-APKs
-          path: output_apks/*.apk
+          path: output_apks/all/*.apk
           if-no-files-found: error
 
       - name: Create GitHub Release (If Requested)
@@ -140,5 +186,5 @@ jobs:
             ### BakaSU 自定义图标 & 防第三方检测管理器
             - **证书大小**: `${{ env.CERT_SIZE }}`
             - **证书 SHA256**: `${{ env.CERT_HASH }}`
-            - **说明**: 已替换专属二次元启动图标，解除界面非官方警告卡片。
-          files: output_apks/*.apk
+            - **说明**: 已替换专属二次元启动图标，移除导致 Android 13+ 闪退的 monochrome 标签，内置 ksud 核心守护程序，界面已解除非官方警告卡片。
+          files: output_apks/all/*.apk
