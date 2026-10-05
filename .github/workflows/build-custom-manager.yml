@@ -40,8 +40,9 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Accept Android SDK Licenses
+        run: |
+          yes | sdkmanager --licenses || true
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
@@ -49,7 +50,6 @@ jobs:
       - name: Prepare Signing Keystore
         id: sign
         run: |
-          mkdir -p "$HOME/.android"
           KEYSTORE_PATH="$PWD/manager/release-key.jks"
           ALIAS="manager-release"
           STOREPASS="bakasu_2026_pass"
@@ -113,13 +113,12 @@ jobs:
           echo "Building spoofed manager with random package: $RAND_PKG"
           ./gradlew assembleRelease -PKSU_PACKAGE_NAME=$RAND_PKG -PIS_SPOOFED_BUILD=true
 
-      - name: Collect and Rename Output APKs
+      - name: Collect Output APKs
         run: |
           mkdir -p output_apks
-          # Find all release apks
-          find manager/app/build/outputs/apk/ -type f -name "*.apk" | while read -r apk; do
+          find manager/app/build/outputs/apk/release/ -type f -name "*.apk" | while read -r apk; do
             filename=$(basename "$apk")
-            echo "Found: $apk -> copying to output_apks/$filename"
+            echo "Copying: $apk -> output_apks/$filename"
             cp "$apk" output_apks/
           done
           ls -lh output_apks/
