@@ -198,11 +198,12 @@ jobs:
           elif [ "${{ github.event_name }}" == "pull_request" ]; then
             export KSU_PACKAGE_NAME="com.resukisu.resukisu.pr${{github.event.pull_request.number}}"
             export BUILD_EXTRA_ARGS="-PKSU_PACKAGE_NAME=$KSU_PACKAGE_NAME"
-          elif [ "${{ github.ref_type }}" != "tag" ] && [ "${{ github.ref_name }}" != "main" ]; then
-            export KSU_PACKAGE_NAME="com.resukisu.resukisu.dev"
-            export KSU_NAME="BakaSU-DEV"
-            export BUILD_EXTRA_ARGS="-PKSU_PACKAGE_NAME=$KSU_PACKAGE_NAME -PKSU_NAME=$KSU_NAME"
-          fi
+          # Keep standard package name for custom branches
+          # elif [ "${{ github.ref_type }}" != "tag" ] && [ "${{ github.ref_name }}" != "main" ]; then
+          #   export KSU_PACKAGE_NAME="com.resukisu.resukisu.dev"
+          #   export KSU_NAME="BakaSU-DEV"
+          #   export BUILD_EXTRA_ARGS="-PKSU_PACKAGE_NAME=$KSU_PACKAGE_NAME -PKSU_NAME=$KSU_NAME"
+          # fi
 
           if [ "${{ github.event_name }}" == "pull_request" ]; then
             ./gradlew assemble${{ matrix.build_type }} -Pcommit=${{ steps.commit.outputs.COMMIT_SHA }} -PIS_PR_BUILD=true $BUILD_EXTRA_ARGS
@@ -326,13 +327,19 @@ jobs:
             echo "SIGN_KEY_ALIAS=pr-key" >> $GITHUB_ENV
             echo "SIGN_KEYSTORE_PASSWORD=$PR_KEYSTORE_PASSWORD" >> $GITHUB_ENV
             echo "SIGN_KEY_PASSWORD=$PR_KEY_PASSWORD" >> $GITHUB_ENV
-          else
-            test -n "$PROD_KEYSTORE"
+          elif [ -n "$PROD_KEYSTORE" ]; then
             echo "$PROD_KEYSTORE" | base64 -d > key.jks
             echo "SIGN_KEYSTORE_FILE=key.jks" >> $GITHUB_ENV
             echo "SIGN_KEY_ALIAS=$PROD_KEY_ALIAS" >> $GITHUB_ENV
             echo "SIGN_KEYSTORE_PASSWORD=$PROD_KEYSTORE_PASSWORD" >> $GITHUB_ENV
             echo "SIGN_KEY_PASSWORD=$PROD_KEY_PASSWORD" >> $GITHUB_ENV
+          else
+            echo "Generating fallback release keystore..."
+            keytool -genkeypair -alias release-key -keyalg RSA -keysize 2048 -validity 1000 -storepass "bakasu_pass" -keypass "bakasu_pass" -dname "CN=BakaSU" -storetype JKS -keystore key.jks
+            echo "SIGN_KEYSTORE_FILE=key.jks" >> $GITHUB_ENV
+            echo "SIGN_KEY_ALIAS=release-key" >> $GITHUB_ENV
+            echo "SIGN_KEYSTORE_PASSWORD=bakasu_pass" >> $GITHUB_ENV
+            echo "SIGN_KEY_PASSWORD=bakasu_pass" >> $GITHUB_ENV
           fi
 
       - name: Repack and resign

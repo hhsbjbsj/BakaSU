@@ -1,0 +1,145 @@
+name: Build Custom Manager APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_spoofed:
+        description: 'Build spoofed package (random package name to bypass machine third-party detection)'
+        required: true
+        type: boolean
+        default: true
+      create_release:
+        description: 'Create a GitHub Release with built APKs'
+        required: false
+        type: boolean
+        default: false
+  push:
+    branches:
+      - custom-manager-icon
+      - 'custom-**'
+    paths:
+      - 'manager/**'
+      - '.github/workflows/build-custom-manager.yml'
+
+jobs:
+  build-manager:
+    name: Build Custom Manager APKs
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Prepare Signing Keystore
+        id: sign
+        run: |
+          mkdir -p "$HOME/.android"
+          KEYSTORE_PATH="$PWD/manager/release-key.jks"
+          ALIAS="manager-release"
+          STOREPASS="bakasu_2026_pass"
+          KEYPASS="bakasu_2026_pass"
+
+          if [ -n "${{ secrets.KEYSTORE }}" ]; then
+            echo "Using custom KEYSTORE secret from GitHub Repository Secrets..."
+            echo "${{ secrets.KEYSTORE }}" | base64 -d > "$KEYSTORE_PATH"
+            ALIAS="${{ secrets.KEY_ALIAS || 'manager-release' }}"
+            STOREPASS="${{ secrets.KEYSTORE_PASSWORD || 'bakasu_2026_pass' }}"
+            KEYPASS="${{ secrets.KEY_PASSWORD || 'bakasu_2026_pass' }}"
+          else
+            echo "Generating dedicated persistent release keystore..."
+            keytool -genkeypair \
+              -alias "$ALIAS" \
+              -keyalg RSA -keysize 2048 \
+              -validity 10000 \
+              -storepass "$STOREPASS" \
+              -keypass "$KEYPASS" \
+              -dname "CN=BakaSU Custom Manager, OU=KernelSU, O=Root, L=Global, ST=Global, C=UN" \
+              -storetype JKS \
+              -keystore "$KEYSTORE_PATH"
+          fi
+
+          # Extract Certificate Size and SHA256 Hash
+          keytool -exportcert -alias "$ALIAS" -keystore "$KEYSTORE_PATH" -storepass "$STOREPASS" -file cert.der
+          CERT_SIZE_DEC=$(stat -c%s cert.der)
+          CERT_SIZE_HEX=$(printf '0x%04x' "$CERT_SIZE_DEC")
+          CERT_HASH=$(sha256sum cert.der | awk '{print $1}')
+          rm -f cert.der
+
+          echo "KEYSTORE_FILE=release-key.jks" >> manager/gradle.properties
+          echo "KEY_ALIAS=$ALIAS" >> manager/gradle.properties
+          echo "KEYSTORE_PASSWORD=$STOREPASS" >> manager/gradle.properties
+          echo "KEY_PASSWORD=$KEYPASS" >> manager/gradle.properties
+
+          echo "CERT_SIZE=$CERT_SIZE_HEX" >> $GITHUB_ENV
+          echo "CERT_HASH=$CERT_HASH" >> $GITHUB_ENV
+
+          echo "### 🔑 签名证书特征与安全说明" >> $GITHUB_STEP_SUMMARY
+          echo "- **证书尺寸 (Hex Size)**: \`$CERT_SIZE_HEX\` ($CERT_SIZE_DEC bytes)" >> $GITHUB_STEP_SUMMARY
+          echo "- **证书 SHA-256 哈希**: \`$CERT_HASH\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **图标状态**: 已成功替换为二次元专属图标，支持 Adaptive Icon 与标准 Mipmap" >> $GITHUB_STEP_SUMMARY
+          echo "- **防报毒/防第三方策略**: Manager 内部已消除非官方警告，同时提供伪装随机包名版防系统应用包拦截" >> $GITHUB_STEP_SUMMARY
+
+      - name: Build Standard Release APK
+        run: |
+          cd manager
+          chmod +x gradlew
+          ./gradlew assembleRelease --stacktrace
+
+      - name: Build Spoofed Manager APK (Bypass System Check)
+        if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.build_spoofed != 'false' }}
+        run: |
+          cd manager
+          # Generate a random 3-segment valid package name
+          w1=$(tr -dc 'a-z' </dev/urandom | head -c6)
+          w2=$(tr -dc 'a-z' </dev/urandom | head -c6)
+          w3=$(tr -dc 'a-z' </dev/urandom | head -c6)
+          RAND_PKG="${w1}.${w2}.${w3}"
+          echo "Building spoofed manager with random package: $RAND_PKG"
+          ./gradlew assembleRelease -PKSU_PACKAGE_NAME=$RAND_PKG -PIS_SPOOFED_BUILD=true
+
+      - name: Collect and Rename Output APKs
+        run: |
+          mkdir -p output_apks
+          # Find all release apks
+          find manager/app/build/outputs/apk/ -type f -name "*.apk" | while read -r apk; do
+            filename=$(basename "$apk")
+            echo "Found: $apk -> copying to output_apks/$filename"
+            cp "$apk" output_apks/
+          done
+          ls -lh output_apks/
+
+      - name: Upload APKs to Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: BakaSU-Custom-Manager-APKs
+          path: output_apks/*.apk
+          if-no-files-found: error
+
+      - name: Create GitHub Release (If Requested)
+        if: ${{ github.event.inputs.create_release == 'true' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: custom-manager-${{ github.run_number }}
+          name: "BakaSU Custom Manager (Build #${{ github.run_number }})"
+          body: |
+            ### BakaSU 自定义图标 & 防第三方检测管理器
+            - **证书大小**: `${{ env.CERT_SIZE }}`
+            - **证书 SHA256**: `${{ env.CERT_HASH }}`
+            - **说明**: 已替换专属二次元启动图标，解除界面非官方警告卡片。
+          files: output_apks/*.apk

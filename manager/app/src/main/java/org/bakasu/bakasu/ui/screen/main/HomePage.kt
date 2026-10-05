@@ -250,7 +250,8 @@ fun HomePage(
                     Spacer(modifier = Modifier.height(10.dp))
                 }
 
-                if (!uiState.systemStatus.isOfficialSignature) {
+                // Unofficial version notice disabled to prevent third-party warning
+                if (false && !uiState.systemStatus.isOfficialSignature) {
                     WarningCard(
                         message = stringResource(
                             R.string.unofficial_version_notice,
