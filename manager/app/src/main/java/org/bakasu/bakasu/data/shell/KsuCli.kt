@@ -277,11 +277,13 @@ class KsuCliRepository(context: Context) {
             file.setReadable(true, false)
             file.setWritable(true, false)
 
+            runCatching { install() }
+
             val filePath = file.absolutePath
             val dataPath = filePath.replace("/data/user/0/", "/data/data/")
             val daemonBin = getKsuDaemonPath()
 
-            val cmd = """FILE=${shellQuote(filePath)}; [ -f "${'$'}FILE" ] || FILE=${shellQuote(dataPath)}; DAEMON="/data/adb/ksud"; [ -x "${'$'}DAEMON" ] || DAEMON=${shellQuote(daemonBin)}; "${'$'}DAEMON" module install "${'$'}FILE""""
+            val cmd = """FILE=${shellQuote(filePath)}; [ -f "${'$'}FILE" ] || FILE=${shellQuote(dataPath)}; DAEMON=${shellQuote(daemonBin)}; [ -x "${'$'}DAEMON" ] || DAEMON="/data/adb/ksud"; "${'$'}DAEMON" module install "${'$'}FILE""""
             val result = flashWithIO(cmd, onStdout, onStderr)
             Log.i(TAG, "install module $uri result: $result")
 
