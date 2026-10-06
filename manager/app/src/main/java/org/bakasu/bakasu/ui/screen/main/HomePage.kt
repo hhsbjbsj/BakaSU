@@ -7,16 +7,16 @@ import android.os.PowerManager
 import android.system.Os
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.expandVertically
-import androidx.compose.animation.core.fadeIn
-import androidx.compose.animation.core.fadeOut
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.shrinkVertically
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -470,20 +470,18 @@ private fun ManagerUpdateCardContent(updateInfo: ManagerUpdateInfo) {
     )
 
     WarningCard(
-        message = "$channelTitle - $message",
+        message = message,
+        color = MaterialTheme.colorScheme.outlineVariant,
         icon = {
             Icon(
                 imageVector = Icons.TwoTone.Info,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onPrimaryContainer,
                 modifier = Modifier.size(18.dp),
             )
         },
-        containerColor = MaterialTheme.colorScheme.primaryContainer,
-        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
         onClick = {
             updateDialog.showConfirm(
-                title = message,
+                title = channelTitle,
                 content = dialogContent,
                 markdown = updateInfo.changelog.isNotBlank(),
                 confirm = updateText,
