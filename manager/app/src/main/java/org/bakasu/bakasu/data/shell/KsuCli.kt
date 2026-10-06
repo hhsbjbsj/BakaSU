@@ -46,21 +46,8 @@ class KsuCliRepository(context: Context) {
 
     fun generateMainShellBuilder(): Shell.Builder {
         val builder = Shell.Builder.create()
-        try {
-            builder.setCommands(getKsuDaemonPath(), "debug", "su")
-            builder.build()
-        } catch (e: Throwable) {
-            Log.w(TAG, "ksu failed: ", e)
-            try {
-                builder.setCommands("su")
-                builder.build()
-            } catch (e: Throwable) {
-                Log.e(TAG, "su failed: ", e)
-                builder.setCommands("sh")
-                builder.build()
-            }
-        }
-
+        builder.setTimeout(4)
+        builder.setCommands(getKsuDaemonPath(), "debug", "su")
         return builder
     }
 
@@ -72,6 +59,7 @@ class KsuCliRepository(context: Context) {
     fun createRootShell(globalMnt: Boolean = false): Shell {
         Shell.enableVerboseLogging = BuildConfig.DEBUG
         val builder = Shell.Builder.create()
+        builder.setTimeout(4)
         return try {
             if (globalMnt) {
                 builder.build(getKsuDaemonPath(), "debug", "su", "-g")
@@ -453,8 +441,10 @@ class KsuCliRepository(context: Context) {
     }
 
     fun rootAvailable(): Boolean {
-        val shell = getRootShell()
-        return shell.isRoot
+        return runCatching {
+            val shell = getRootShell()
+            shell.isRoot
+        }.getOrDefault(false)
     }
 
     suspend fun getCurrentKmi(): String = withContext(Dispatchers.IO) {

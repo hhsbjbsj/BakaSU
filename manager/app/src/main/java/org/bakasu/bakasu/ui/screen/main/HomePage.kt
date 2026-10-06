@@ -147,8 +147,6 @@ fun HomePage(
         }
     }
 
-    if (!uiState.isInitialDataLoaded) return
-
     val topAppBarState = rememberTopAppBarState()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(topAppBarState)
     val scrollState = rememberScrollState()
@@ -341,6 +339,14 @@ fun HomePage(
                             }
                         }
                     },
+                )
+            } else {
+                SettingsBaseWidget(
+                    icon = Icons.TwoTone.TaskAlt,
+                    iconSize = 18.dp,
+                    title = stringResource(id = R.string.home_working),
+                    description = "KernelSU",
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
                 )
             }
             Spacer(modifier = Modifier.height(10.dp))

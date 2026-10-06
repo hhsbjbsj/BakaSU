@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.bakasu.bakasu.data.shell.KsuCliRepository
 
 data class CountState(
@@ -21,7 +22,11 @@ class CountRepository(
 
     suspend fun refresh() {
         val (superuserCount, moduleCount) = withContext(Dispatchers.IO) {
-            ksuCliRepository.getSuperuserCount() to ksuCliRepository.getModuleCount()
+            val suCount = runCatching { ksuCliRepository.getSuperuserCount() }.getOrDefault(0)
+            val modCount = withTimeoutOrNull(2000) {
+                runCatching { ksuCliRepository.getModuleCount() }.getOrDefault(0)
+            } ?: 0
+            suCount to modCount
         }
         mutableState.update {
             it.copy(superuserCount = superuserCount, moduleCount = moduleCount)

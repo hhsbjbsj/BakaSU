@@ -11,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.bakasu.bakasu.data.shell.KsuCliRepository
 
 class SuSFSConfigHelper(
@@ -349,25 +350,27 @@ class SuSFSConfigHelper(
     }
 
     private suspend fun executeSusfsCommand(command: String): CommandResult = withContext(Dispatchers.IO) {
-        try {
-            val stdout = ArrayList<String>()
-            val stderr = ArrayList<String>()
-            val result = ksuCliRepository.withNewRootShell {
-                newJob()
-                    .add("${shellQuote(ksuCliRepository.getKsuDaemonPath())} susfs $command")
-                    .to(stdout, stderr)
-                    .exec()
-            }
+        withTimeoutOrNull(2500) {
+            try {
+                val stdout = ArrayList<String>()
+                val stderr = ArrayList<String>()
+                val result = ksuCliRepository.withNewRootShell {
+                    newJob()
+                        .add("${shellQuote(ksuCliRepository.getKsuDaemonPath())} susfs $command")
+                        .to(stdout, stderr)
+                        .exec()
+                }
 
-            CommandResult(
-                success = result.isSuccess,
-                stdout = stdout.joinToString("\n").trim(),
-                stderr = stderr.joinToString("\n").trim(),
-            )
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to execute ksud susfs $command", e)
-            CommandResult(false, "", e.message.orEmpty())
-        }
+                CommandResult(
+                    success = result.isSuccess,
+                    stdout = stdout.joinToString("\n").trim(),
+                    stderr = stderr.joinToString("\n").trim(),
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to execute ksud susfs $command", e)
+                CommandResult(false, "", e.message.orEmpty())
+            }
+        } ?: CommandResult(false, "", "Timeout executing ksud susfs $command")
     }
 
     private fun shellQuote(value: String): String = "'${value.replace("'", "'\"'\"'")}'"

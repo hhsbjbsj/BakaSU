@@ -12,16 +12,21 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import org.bakasu.bakasu.data.count.CountRepository
 import org.bakasu.bakasu.data.module.ModuleRepository
 import org.bakasu.bakasu.data.packageinfo.SuperUserRepository
 import org.bakasu.bakasu.data.shell.KsuCliRepository
 import org.bakasu.bakasu.data.system.HomeStateRepository
+import org.bakasu.bakasu.domain.model.HomeBasicInfo
 import org.bakasu.bakasu.domain.model.HomeDashboardState
 import org.bakasu.bakasu.domain.model.HomeSystemInfo
+import org.bakasu.bakasu.domain.model.ManagerRuntimeInfo
 import org.bakasu.bakasu.domain.model.ManagerUpdateChannel
+import org.bakasu.bakasu.domain.model.SuSFSStatus
 import org.bakasu.bakasu.domain.usecase.CheckManagerUpdateUseCase
 import org.bakasu.bakasu.domain.usecase.GetBooleanPreferenceUseCase
 import org.bakasu.bakasu.domain.usecase.GetHomeBasicInfoUseCase
@@ -83,8 +88,6 @@ class HomeViewModel(
             systemInfo = homeState.systemInfo.copy(
                 moduleCount = moduleCount,
                 superuserCount = superuserCount,
-                zygiskImplement = ksuCliRepository.getZygiskImplement(),
-                metaModuleImplement = ksuCliRepository.getMetaModuleImplement(),
             ),
         )
     }.stateIn(
@@ -102,6 +105,14 @@ class HomeViewModel(
 
     init {
         applyUserSettings()
+        viewModelScope.launch {
+            runCatching {
+                val kernelStatus = getKernelStatus()
+                homeStateRepository.update {
+                    it.copy(systemStatus = kernelStatus, isCoreDataLoaded = true)
+                }
+            }
+        }
         viewModelScope.launch { countRepository.refresh() }
     }
 
@@ -128,16 +139,42 @@ class HomeViewModel(
 
                     val includeSelinuxStatus = !uiState.value.isInitialDataLoaded
                     val basic = async {
-                        getBasicInfo(
-                            managerUapiVersion = kernelStatus.managerUAPIVersion,
-                            includeSelinuxStatus = includeSelinuxStatus,
-                        )
+                        runCatching {
+                            withTimeoutOrNull(2000) {
+                                getBasicInfo(
+                                    managerUapiVersion = kernelStatus.managerUAPIVersion,
+                                    includeSelinuxStatus = includeSelinuxStatus,
+                                )
+                            }
+                        }.getOrNull()
                     }
-                    val managers = async { getManagerRuntimeInfo() }
-                    val susfs = async { getSuSFSStatus() }
-                    val basicInfo = basic.await()
-                    val managerInfo = managers.await()
-                    val susfsInfo = susfs.await()
+                    val managers = async {
+                        runCatching {
+                            withTimeoutOrNull(2000) { getManagerRuntimeInfo() }
+                        }.getOrNull()
+                    }
+                    val susfs = async {
+                        runCatching {
+                            withTimeoutOrNull(2500) { getSuSFSStatus() }
+                        }.getOrNull()
+                    }
+                    val zygisk = async {
+                        runCatching {
+                            withTimeoutOrNull(1500) { ksuCliRepository.getZygiskImplement() }
+                        }.getOrNull().orEmpty()
+                    }
+                    val metaModule = async {
+                        runCatching {
+                            withTimeoutOrNull(1500) { ksuCliRepository.getMetaModuleImplement() }
+                        }.getOrNull().orEmpty()
+                    }
+
+                    val basicInfo = basic.await() ?: HomeBasicInfo()
+                    val managerInfo = managers.await() ?: ManagerRuntimeInfo()
+                    val susfsInfo = susfs.await() ?: SuSFSStatus()
+                    val zygiskInfo = zygisk.await()
+                    val metaModuleInfo = metaModule.await()
+
                     homeStateRepository.update { current ->
                         current.copy(
                             systemInfo = HomeSystemInfo(
@@ -154,6 +191,8 @@ class HomeViewModel(
                                 susfsFeatures = susfsInfo.enabledFeatures,
                                 managersList = managerInfo,
                                 isDynamicSignEnabled = managerInfo.dynamicSignatureEnabled,
+                                zygiskImplement = zygiskInfo.ifEmpty { current.systemInfo.zygiskImplement },
+                                metaModuleImplement = metaModuleInfo.ifEmpty { current.systemInfo.metaModuleImplement },
                                 seccompStatus = basicInfo.seccompStatus,
                             ),
                             isInitialDataLoaded = true,
@@ -166,7 +205,11 @@ class HomeViewModel(
                     mutableEvents.emit(HomeUiEvent.Error(error.message.orEmpty()))
                 } finally {
                     homeStateRepository.update {
-                        it.copy(isInitialDataLoaded = true, isRefreshing = false)
+                        it.copy(
+                            isCoreDataLoaded = true,
+                            isInitialDataLoaded = true,
+                            isRefreshing = false,
+                        )
                     }
                 }
             }

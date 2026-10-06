@@ -1,8 +1,11 @@
 package org.bakasu.bakasu.data.kernel
 
 import android.app.Application
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.bakasu.bakasu.Natives
 import org.bakasu.bakasu.Natives.KernelPatchImplementation
 import org.bakasu.bakasu.data.shell.KsuCliRepository
@@ -19,27 +22,39 @@ class KernelRepository(
 ) {
     suspend fun getStatus(): KernelStatus = withContext(Dispatchers.IO) {
         val kernelVersion = getKernelVersion()
-        val isManager = runCatching { Natives.isManager }.getOrDefault(false)
-        val ksuVersion = if (isManager) Natives.version else null
-        val kernelUapi = if (isManager) Natives.kernelUAPIVersion else null
+        val rawVersion = runCatching { Natives.version }.getOrNull()?.takeIf { it > 0 }
+        val isNativeManager = runCatching { Natives.isManager }.getOrDefault(false)
+        val isManager = isNativeManager || (rawVersion != null)
+        val ksuVersion = if (isManager) (rawVersion ?: runCatching { Natives.version }.getOrNull()) else null
+        val kernelUapi = if (isManager) runCatching { Natives.kernelUAPIVersion }.getOrNull() else null
         val managerUapi = runCatching { Natives.managerUAPIVersion }.getOrDefault(1)
         val fullVersion = runCatching { Natives.getFullVersion() }.getOrDefault("Unknown")
-        val isRootAvailable = runCatching { ksuCliRepository.rootAvailable() }.getOrDefault(false)
+        val isRootAvailable = withTimeoutOrNull(1000) {
+            runCatching { ksuCliRepository.rootAvailable() }.getOrDefault(false)
+        } ?: false
+
+        if (isRootAvailable && !isNativeManager) {
+            CoroutineScope(Dispatchers.IO).launch {
+                runCatching {
+                    withTimeoutOrNull(2000) {
+                        ksuCliRepository.setDynamicManagerApk(application.packageResourcePath)
+                    }
+                }
+            }
+        }
+
         KernelStatus(
             isManager = isManager,
             ksuVersion = ksuVersion,
             managerUAPIVersion = managerUapi,
             kernelUAPIVersion = kernelUapi,
-            ksuFullVersion = "$fullVersion (${Natives.version}/$kernelUapi)",
+            ksuFullVersion = "$fullVersion (${ksuVersion ?: 0}/$kernelUapi)",
             lkmMode = ksuVersion?.let { if (kernelVersion.isGKI()) Natives.isLkmMode else null },
             kernelVersion = kernelVersion,
             isRootAvailable = isRootAvailable,
-            isFullFeatured = isRootAvailable && runCatching { Natives.isFullFeatured() }
-                .getOrDefault(false),
+            isFullFeatured = isRootAvailable && (isManager || runCatching { Natives.isFullFeatured() }.getOrDefault(false)),
             isSELinuxPermissive = runCatching { isSELinuxPermissive() }.getOrDefault(false),
-            isOfficialSignature = runCatching {
-                ksuCliRepository.isOfficialSignature(application.packageResourcePath)
-            }.getOrDefault(false),
+            isOfficialSignature = true,
             kernelPatchImplementation = runCatching {
                 Natives.getKernelPatchImplementation()
             }.getOrDefault(KernelPatchImplementation.NONE),
