@@ -55,7 +55,19 @@ jobs:
           STOREPASS="bakasu_2026_pass"
           KEYPASS="bakasu_2026_pass"
 
-          if [ -n "${{ secrets.KEYSTORE }}" ]; then
+          if [ -f "$PWD/manager/custom-release.jks" ]; then
+            echo "Using committed permanent custom-release.jks..."
+            cp "$PWD/manager/custom-release.jks" "$KEYSTORE_PATH"
+            ALIAS="bakasu-custom"
+            STOREPASS="bakasu_custom_pass"
+            KEYPASS="bakasu_custom_pass"
+          elif [ -f "$PWD/custom_assets/keystore/custom-release.jks" ]; then
+            echo "Using custom_assets permanent custom-release.jks..."
+            cp "$PWD/custom_assets/keystore/custom-release.jks" "$KEYSTORE_PATH"
+            ALIAS="bakasu-custom"
+            STOREPASS="bakasu_custom_pass"
+            KEYPASS="bakasu_custom_pass"
+          elif [ -n "${{ secrets.KEYSTORE }}" ]; then
             echo "Using custom KEYSTORE secret from GitHub Repository Secrets..."
             echo "${{ secrets.KEYSTORE }}" | base64 -d > "$KEYSTORE_PATH"
             ALIAS="${{ secrets.KEY_ALIAS || 'manager-release' }}"

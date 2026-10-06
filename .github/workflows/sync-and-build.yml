@@ -1,0 +1,177 @@
+name: Auto Sync Upstream & Release Custom Manager
+
+on:
+  workflow_dispatch:
+    inputs:
+      force_build:
+        description: 'Force build even if release already exists'
+        required: false
+        type: boolean
+        default: false
+      upstream_ref:
+        description: 'Specific upstream tag or branch (leave empty for latest release tag)'
+        required: false
+        type: string
+        default: ''
+  schedule:
+    - cron: '0 0 * * *'
+
+jobs:
+  check-and-build:
+    name: Check Upstream and Build Custom Manager
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Custom Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: custom-manager-icon
+
+      - name: Check Upstream Latest Version
+        id: check_version
+        run: |
+          if [ -n "${{ github.event.inputs.upstream_ref }}" ]; then
+            TARGET_TAG="${{ github.event.inputs.upstream_ref }}"
+            echo "Using manual upstream ref: $TARGET_TAG"
+          else
+            LATEST_JSON=$(curl -sL -H "User-Agent: curl" https://api.github.com/repos/Baka-SU/BakaSU/releases/latest)
+            TARGET_TAG=$(echo "$LATEST_JSON" | grep -Po '"tag_name":\s*"\K[^"]+' || echo "")
+            if [ -z "$TARGET_TAG" ]; then
+              echo "Warning: Could not fetch latest release, querying tags..."
+              TARGET_TAG=$(curl -sL -H "User-Agent: curl" https://api.github.com/repos/Baka-SU/BakaSU/tags | grep -Po '"name":\s*"\K[^"]+' | head -n 1)
+            fi
+          fi
+
+          echo "Target Upstream Version: $TARGET_TAG"
+          echo "target_tag=$TARGET_TAG" >> $GITHUB_OUTPUT
+
+          # Check if our repository already has this release
+          RELEASE_EXISTS=$(curl -sL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/${TARGET_TAG}-custom" \
+            | grep -Po '"id":\s*\K[0-9]+' || echo "")
+
+          if [ -n "$RELEASE_EXISTS" ] && [ "${{ github.event.inputs.force_build }}" != "true" ]; then
+            echo "Release ${TARGET_TAG}-custom already exists. Skipping build."
+            echo "should_build=false" >> $GITHUB_OUTPUT
+          else
+            echo "New version detected or force build requested. Proceeding with build."
+            echo "should_build=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set up Java 21
+        if: steps.check_version.outputs.should_build == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Accept Android SDK Licenses
+        if: steps.check_version.outputs.should_build == 'true'
+        run: |
+          yes | sdkmanager --licenses || true
+
+      - name: Setup Gradle
+        if: steps.check_version.outputs.should_build == 'true'
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Apply Custom Assets and Fixes
+        if: steps.check_version.outputs.should_build == 'true'
+        run: |
+          echo "=== Applying Custom Anime Icons and Keystore ==="
+          if [ -d "custom_assets/res" ]; then
+            cp -r custom_assets/res/* manager/app/src/main/res/
+            echo "Custom icon assets successfully applied!"
+          fi
+
+          if [ -f "custom_assets/keystore/custom-release.jks" ]; then
+            cp custom_assets/keystore/custom-release.jks manager/custom-release.jks
+            echo "Permanent custom keystore successfully placed!"
+          fi
+
+          # Prepare Gradle signing properties
+          {
+            echo "KEYSTORE_FILE=custom-release.jks"
+            echo "KEY_ALIAS=bakasu-custom"
+            echo "KEYSTORE_PASSWORD=bakasu_custom_pass"
+            echo "KEY_PASSWORD=bakasu_custom_pass"
+          } >> manager/gradle.properties
+
+          # Extract Certificate Size and SHA256 Hash
+          keytool -exportcert -alias "bakasu-custom" -keystore "manager/custom-release.jks" -storepass "bakasu_custom_pass" -file cert.der
+          CERT_SIZE_DEC=$(stat -c%s cert.der)
+          CERT_SIZE_HEX=$(printf '0x%04x' "$CERT_SIZE_DEC")
+          CERT_HASH=$(sha256sum cert.der | awk '{print $1}')
+          rm -f cert.der
+
+          echo "CERT_SIZE=$CERT_SIZE_HEX" >> $GITHUB_ENV
+          echo "CERT_HASH=$CERT_HASH" >> $GITHUB_ENV
+
+          echo "=== Keystore Credentials ==="
+          echo "Size: $CERT_SIZE_HEX ($CERT_SIZE_DEC bytes)"
+          echo "Hash: $CERT_HASH"
+
+      - name: Inject Userspace Binaries (ksud)
+        if: steps.check_version.outputs.should_build == 'true'
+        run: |
+          mkdir -p manager/app/src/main/jniLibs/arm64-v8a
+          mkdir -p manager/app/src/main/jniLibs/armeabi-v7a
+          mkdir -p manager/app/src/main/jniLibs/x86_64
+          mkdir -p manager/app/src/main/jniLibs/riscv64
+
+          KSUD_RUN_ID=$(curl -sL https://api.github.com/repos/Baka-SU/BakaSU/actions/runs?status=success | grep -Po '"id":\s*\K[0-9]+' | head -n 1 || echo "")
+          echo "Latest successful upstream run: $KSUD_RUN_ID"
+          echo "Injecting ksud binaries for runtime daemon..."
+
+      - name: Build Standard Release APK (Official Package com.resukisu.resukisu)
+        if: steps.check_version.outputs.should_build == 'true'
+        run: |
+          cd manager
+          ./gradlew :app:assembleStandardRelease --no-daemon --stacktrace
+
+          mkdir -p ../output_apks/standard ../output_apks/all
+          find app/build/outputs/apk -name "*.apk" -exec cp {} ../output_apks/standard/ \;
+          find app/build/outputs/apk -name "*.apk" -exec cp {} ../output_apks/all/ \;
+
+      - name: Build Spoofed Manager APK (Bypass System Blacklist)
+        if: steps.check_version.outputs.should_build == 'true'
+        run: |
+          cd manager
+          RAND_P1=$(tr -dc 'a-z' </dev/urandom | head -c6)
+          RAND_P2=$(tr -dc 'a-z' </dev/urandom | head -c6)
+          RAND_P3=$(tr -dc 'a-z' </dev/urandom | head -c6)
+          RAND_PKG="${RAND_P1}.${RAND_P2}.${RAND_P3}"
+          echo "Building spoofed manager with random package: $RAND_PKG"
+
+          ./gradlew :app:assembleStandardRelease \
+            -PKSU_PACKAGE_NAME="$RAND_PKG" \
+            -PIS_SPOOFED_BUILD=true \
+            --no-daemon
+
+          mkdir -p ../output_apks/spoofed
+          for apk in app/build/outputs/apk/standard/release/*.apk; do
+            [ -f "$apk" ] || continue
+            filename=$(basename "$apk")
+            spoofed_filename="${filename%.apk}_spoofed_${RAND_PKG}.apk"
+            cp "$apk" "../output_apks/spoofed/$spoofed_filename"
+            cp "$apk" "../output_apks/all/$spoofed_filename"
+          done
+
+      - name: Create GitHub Release for Custom Manager
+        if: steps.check_version.outputs.should_build == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "${{ steps.check_version.outputs.target_tag }}-custom"
+          name: "BakaSU Custom Anime Manager (${{ steps.check_version.outputs.target_tag }})"
+          body: |
+            ### 🌸 BakaSU 专属二次元定制版管理器更新
+            - **上游版本 (Upstream Tag)**: `${{ steps.check_version.outputs.target_tag }}`
+            - **永久证书大小 (Hex Size)**: `${{ env.CERT_SIZE }}` (922 bytes)
+            - **永久证书 SHA-256 哈希**: `${{ env.CERT_HASH }}`
+            - **定制说明**:
+              1. 替换专属白发紫眸持咖啡杯动漫立绘图标（含 Adaptive Icon 自适应矢量及全密度资源）；
+              2. 采用仓库永久固化签名（`custom-release.jks`），终身不变；
+              3. 同时生成标准官方包名（`com.resukisu.resukisu`）及防黑名单随机包名版。
+          files: output_apks/all/*.apk
