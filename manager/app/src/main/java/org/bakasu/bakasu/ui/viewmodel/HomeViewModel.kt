@@ -171,7 +171,7 @@ class HomeViewModel(
 
                     val basicInfo = basic.await() ?: HomeBasicInfo()
                     val managerInfo = managers.await() ?: ManagerRuntimeInfo()
-                    val susfsInfo = susfs.await() ?: SuSFSStatus()
+                    val susfsInfo = susfs.await() ?: SuSFSStatus(false, "", "")
                     val zygiskInfo = zygisk.await()
                     val metaModuleInfo = metaModule.await()
 
