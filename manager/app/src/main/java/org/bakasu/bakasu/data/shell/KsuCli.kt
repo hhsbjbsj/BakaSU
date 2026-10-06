@@ -77,10 +77,15 @@ class KsuCliRepository(context: Context) {
         val builder = Shell.Builder.create()
         builder.setTimeout(4)
         return try {
-            if (globalMnt) {
+            val shell = if (globalMnt) {
                 builder.build(getKsuDaemonPath(), "debug", "su", "-g")
             } else {
                 builder.build(getKsuDaemonPath(), "debug", "su")
+            }
+            if (shell.isRoot) {
+                shell
+            } else {
+                if (globalMnt) builder.build("su", "-mm") else builder.build("su")
             }
         } catch (e: Throwable) {
             Log.w(TAG, "ksu failed: ", e)
@@ -239,7 +244,7 @@ class KsuCliRepository(context: Context) {
             }
         }
 
-        return withNewRootShell {
+        return withNewRootShell(true) {
             newJob().add(cmd).to(stdoutCallback, stderrCallback).exec()
         }
     }
@@ -251,20 +256,41 @@ class KsuCliRepository(context: Context) {
         onStdout: (String) -> Unit,
         onStderr: (String) -> Unit,
     ): Boolean {
-        val resolver = context.contentResolver
-        with(resolver.openInputStream(uri)) {
+        return try {
+            val resolver = context.contentResolver
             val file = File(context.cacheDir, "module.zip")
-            file.outputStream().use { output ->
-                this?.copyTo(output)
+            if (file.exists()) {
+                file.delete()
             }
-            val cmd = "module install ${file.absolutePath}"
-            val result = flashWithIO("${getKsuDaemonPath()} $cmd", onStdout, onStderr)
-            Log.i("KernelSU", "install module $uri result: $result")
+            val copied = resolver.openInputStream(uri)?.use { input ->
+                file.outputStream().use { output ->
+                    input.copyTo(output) > 0
+                }
+            } ?: false
+
+            if (!copied || !file.exists() || file.length() == 0L) {
+                onStderr("Failed to read module file from URI: $uri\n")
+                onFinish(false, -1)
+                return false
+            }
+
+            file.setReadable(true, false)
+            file.setWritable(true, false)
+
+            val daemonCmd = "if [ -x /data/adb/ksud ]; then /data/adb/ksud; else ${getKsuDaemonPath()}; fi"
+            val cmd = "$daemonCmd module install ${shellQuote(file.absolutePath)}"
+            val result = flashWithIO(cmd, onStdout, onStderr)
+            Log.i(TAG, "install module $uri result: $result")
 
             file.delete()
 
             onFinish(result.isSuccess, result.code)
-            return result.isSuccess
+            result.isSuccess
+        } catch (e: Throwable) {
+            Log.e(TAG, "flashModule failed: ", e)
+            onStderr("Exception during module flash: ${e.message}\n")
+            onFinish(false, -1)
+            false
         }
     }
 

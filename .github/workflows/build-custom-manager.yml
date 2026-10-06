@@ -116,7 +116,12 @@ jobs:
           mkdir -p manager/app/src/main/jniLibs/x86_64
 
           echo "Fetching official verified ksud binaries for native packaging..."
-          curl -sSL "https://github.com/Baka-SU/BakaSU/releases/download/v4.2.0-rc1/ReSukiSU_v4.2.0-rc1_35061-universal-release.apk" -o upstream.apk
+          LATEST_URL=$(curl -sL https://api.github.com/repos/Baka-SU/BakaSU/releases/latest | grep "browser_download_url.*universal-release.apk" | cut -d '"' -f 4 | head -n 1 || echo "")
+          if [ -z "$LATEST_URL" ]; then
+            LATEST_URL="https://github.com/Baka-SU/BakaSU/releases/download/v4.2.0-rc3/ReSukiSU_v4.2.0-rc3_35171-universal-release.apk"
+          fi
+          echo "Downloading upstream ksud from: $LATEST_URL"
+          curl -sSL "$LATEST_URL" -o upstream.apk
           unzip -j -o upstream.apk "lib/arm64-v8a/libksud.so" -d manager/app/src/main/jniLibs/arm64-v8a/
           unzip -j -o upstream.apk "lib/armeabi-v7a/libksud.so" -d manager/app/src/main/jniLibs/armeabi-v7a/
           unzip -j -o upstream.apk "lib/x86_64/libksud.so" -d manager/app/src/main/jniLibs/x86_64/
