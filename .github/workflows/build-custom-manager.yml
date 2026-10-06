@@ -17,6 +17,8 @@ on:
     branches:
       - custom-manager-icon
       - 'custom-**'
+      - exp-custom-alt-icon
+      - 'exp-**'
     paths:
       - 'manager/**'
       - '.github/workflows/build-custom-manager.yml'

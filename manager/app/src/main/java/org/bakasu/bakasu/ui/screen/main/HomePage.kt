@@ -380,11 +380,7 @@ fun HomePage(
                 )
             }
 
-            // 链接卡片
-            if (!uiState.isSimpleMode) {
-                DonateCard(uiState.showHomeCardIcons)
-                LearnMoreCard(uiState.showHomeCardIcons)
-            }
+            // Redundant management cards (DonateCard, LearnMoreCard) removed for clean concise M3E Home
 
             Spacer(Modifier.height(bottomPadding))
         }
@@ -632,6 +628,14 @@ private fun StatusCard(
                         Spacer(Modifier.width(6.dp))
                         LabelText(
                             label = stringResource(id = R.string.jailbreak_mode),
+                            containerColor = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+
+                    if (uiState.systemInfo.susfsEnabled && uiState.systemInfo.susfsVersion.isNotEmpty()) {
+                        Spacer(Modifier.width(6.dp))
+                        LabelText(
+                            label = "SuSFS " + uiState.systemInfo.susfsVersion,
                             containerColor = MaterialTheme.colorScheme.primary,
                         )
                     }
