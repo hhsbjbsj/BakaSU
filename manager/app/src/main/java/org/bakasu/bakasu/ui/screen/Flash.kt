@@ -299,6 +299,7 @@ fun FlashScreen(flashIt: FlashIt) {
                 }
                 logContent.append(it).append("\n")
             }, onStderr = {
+                text += "$it\n"
                 logContent.append(it).append("\n")
             })
         }
@@ -413,6 +414,7 @@ fun FlashScreen(flashIt: FlashIt) {
                 }
                 logContent.append(it).append("\n")
             }, onStderr = {
+                text += "$it\n"
                 logContent.append(it).append("\n")
             })
         }
