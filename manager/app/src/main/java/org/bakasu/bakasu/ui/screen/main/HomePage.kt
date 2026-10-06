@@ -390,6 +390,7 @@ fun HomePage(
         }
     }
 }
+}
 
 @Composable
 private fun ManagerUpdateCard(update: ManagerUpdateInfo?) {
