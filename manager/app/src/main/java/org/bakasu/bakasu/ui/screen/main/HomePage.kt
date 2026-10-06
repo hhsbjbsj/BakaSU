@@ -13,6 +13,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
@@ -48,6 +49,7 @@ import androidx.compose.material.icons.twotone.VolunteerActivism
 import androidx.compose.material.icons.twotone.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuGroup
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.DropdownMenuPopup
@@ -70,6 +72,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -172,8 +175,18 @@ fun HomePage(
             )
         },
     ) { innerPadding ->
-        Column(
-            modifier = Modifier
+        if (!uiState.isInitialDataLoaded) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
+                contentAlignment = Alignment.Center,
+            ) {
+                CircularProgressIndicator()
+            }
+        } else {
+            Column(
+                modifier = Modifier
                 .fillMaxSize()
                 .blurSource()
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
@@ -339,14 +352,6 @@ fun HomePage(
                             }
                         }
                     },
-                )
-            } else {
-                SettingsBaseWidget(
-                    icon = Icons.TwoTone.TaskAlt,
-                    iconSize = 18.dp,
-                    title = stringResource(id = R.string.home_working),
-                    description = "KernelSU",
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
                 )
             }
             Spacer(modifier = Modifier.height(10.dp))

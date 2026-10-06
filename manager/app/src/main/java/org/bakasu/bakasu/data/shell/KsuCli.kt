@@ -46,8 +46,24 @@ class KsuCliRepository(context: Context) {
 
     fun generateMainShellBuilder(): Shell.Builder {
         val builder = Shell.Builder.create()
-        builder.setTimeout(4)
-        builder.setCommands(getKsuDaemonPath(), "debug", "su")
+        builder.setTimeout(2)
+        try {
+            builder.setCommands(getKsuDaemonPath(), "debug", "su")
+            val shell = builder.build()
+            if (!shell.isRoot) {
+                builder.setCommands("su")
+            }
+        } catch (e: Throwable) {
+            Log.w(TAG, "ksu debug su failed: ", e)
+            try {
+                builder.setCommands("su")
+                builder.build()
+            } catch (e: Throwable) {
+                Log.e(TAG, "su failed: ", e)
+                builder.setCommands("sh")
+            }
+        }
+
         return builder
     }
 

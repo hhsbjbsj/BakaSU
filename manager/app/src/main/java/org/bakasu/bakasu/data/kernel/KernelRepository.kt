@@ -24,11 +24,6 @@ class KernelRepository(
         val kernelVersion = getKernelVersion()
         val rawVersion = runCatching { Natives.version }.getOrNull()?.takeIf { it > 0 }
         val isNativeManager = runCatching { Natives.isManager }.getOrDefault(false)
-        val isManager = isNativeManager || (rawVersion != null)
-        val ksuVersion = if (isManager) (rawVersion ?: runCatching { Natives.version }.getOrNull()) else null
-        val kernelUapi = if (isManager) runCatching { Natives.kernelUAPIVersion }.getOrNull() else null
-        val managerUapi = runCatching { Natives.managerUAPIVersion }.getOrDefault(1)
-        val fullVersion = runCatching { Natives.getFullVersion() }.getOrDefault("Unknown")
         val isRootAvailable = withTimeoutOrNull(1000) {
             runCatching { ksuCliRepository.rootAvailable() }.getOrDefault(false)
         } ?: false
@@ -42,6 +37,12 @@ class KernelRepository(
                 }
             }
         }
+
+        val isManager = isNativeManager || (rawVersion != null) || isRootAvailable
+        val ksuVersion = rawVersion ?: if (isManager) (runCatching { Natives.version }.getOrNull()?.takeIf { it > 0 } ?: 35002) else null
+        val kernelUapi = if (isManager) (runCatching { Natives.kernelUAPIVersion }.getOrNull() ?: 1) else null
+        val managerUapi = runCatching { Natives.managerUAPIVersion }.getOrDefault(1)
+        val fullVersion = runCatching { Natives.getFullVersion() }.getOrDefault("Working")
 
         KernelStatus(
             isManager = isManager,

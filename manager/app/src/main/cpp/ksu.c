@@ -60,33 +60,18 @@ static inline int scan_driver_fd() {
 	return found;
 }
 
-static inline int get_driver_fd() {
-	if (fd >= 0) {
-		return fd;
-	}
-	fd = scan_driver_fd();
-	if (fd >= 0) {
-		return fd;
-	}
-	int reboot_fd = -1;
-	long ret = syscall(__NR_reboot, KSU_INSTALL_MAGIC1, KSU_INSTALL_MAGIC2, 0, &reboot_fd);
-	if (ret == 0 && reboot_fd >= 0) {
-		fd = reboot_fd;
-	}
-	return fd;
-}
-
 static int ksuctl(unsigned long op, void* arg) {
-	int cur_fd = get_driver_fd();
-	if (cur_fd < 0) {
+	if (fd < 0) {
+		fd = scan_driver_fd();
+	}
+	if (fd < 0) {
 		return -1;
 	}
-	int res = ioctl(cur_fd, op, arg);
+	int res = ioctl(fd, op, arg);
 	if (res < 0 && errno == EBADF) {
-		fd = -1;
-		cur_fd = get_driver_fd();
-		if (cur_fd >= 0) {
-			res = ioctl(cur_fd, op, arg);
+		fd = scan_driver_fd();
+		if (fd >= 0) {
+			res = ioctl(fd, op, arg);
 		}
 	}
 	return res;
@@ -156,7 +141,7 @@ bool is_lkm_mode() {
 bool is_manager() {
     auto info = get_info();
     if (info.version > 0) {
-        return true;
+        return (info.flags & KSU_GET_INFO_FLAG_MANAGER) != 0;
     }
     // Legacy Compatible
     return legacy_get_info().version > 0;
